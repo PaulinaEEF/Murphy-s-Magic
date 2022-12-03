@@ -1,111 +1,65 @@
-import os
 import torch
-import torchvision
+import numpy as np
 import matplotlib.pyplot as plt
-import numpy as np
-from torch.utils.data import DataLoader, Dataset
-import torchvision.transforms as TF
-import torchvision.datasets as datasets
-import torch.nn as nn
+
+import torchvision.transforms.functional as F
 from torchvision.utils import make_grid
-from torchvision.utils import save_image
-import numpy as np
-import random
-from math import radians, cos, sin
-import cv2
+from torchvision.io import read_image
+from pathlib import Path
 
-class Transforms():
-    def __init__(self):
-        pass
+from PIL import Image
+from torchvision.utils import draw_bounding_boxes
+from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as T
+import torchvision.datasets as datasets
+from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
+from torchvision.models.segmentation import fcn_resnet50, FCN_ResNet50_Weights
+
+import time
+
+
+plt.rcParams["savefig.bbox"] = 'tight'
+
+
+def show(imgs):
+    if not isinstance(imgs, list):
+        imgs = [imgs]
+    fig, axs = plt.subplots(ncols=len(imgs), squeeze=False)
+    for i, img in enumerate(imgs):
+        img = img.detach()
+        img = F.to_pil_image(img)
+        axs[0, i].imshow(np.asarray(img))
+        axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+    plt.show()
+
+if __name__ == "__main__":
+    transforms = T.Compose([T.Resize((512,512)), T.ToPILImage(), T.ToTensor()])
+    img_dataset = datasets.ImageFolder(root='./DatasetSI', transform=transforms)
+    dl = DataLoader(img_dataset, batch_size=64, shuffle=True)
+    dog1 = read_image('./DatasetSI/anadearmas/ana_de_armas1.jpg').resize_([3, 1024, 1024])
+    dog2 = read_image(
+        './DatasetSI/anadearmas/ana_de_armas2.jpg').resize_([3, 1024, 1024])
+    dog_list = [dog1, dog2]
     
-    # def rotate(self, image, landmarks, angle):
-    #     angle = random.uniform(-angle, +angle)
+    
+    weights = FCN_ResNet50_Weights.DEFAULT
+    transforms = weights.transforms(resize_size=None)
 
-    #     transformation_matrix = torch.tensor([
-    #         [+cos(radians(angle)), -sin(radians(angle))], 
-    #         [+sin(radians(angle)), +cos(radians(angle))]
-    #     ])
+    model = fcn_resnet50(weights=weights, progress=False)
+    model = model.eval()
 
-    #     image = imutils.rotate(np.array(image), angle)
+    batch = torch.stack([transforms(d) for d in dog_list])
+    output = model(batch)['out']
+    print(output.shape, output.min().item(), output.max().item())
+    sem_class_to_idx = {cls: idx for (idx, cls) in enumerate(weights.meta["categories"])}
 
-    #     landmarks = landmarks - 0.5
-    #     new_landmarks = np.matmul(landmarks, transformation_matrix)
-    #     new_landmarks = new_landmarks + 0.5
-    #     return Image.fromarray(image), new_landmarks
+    normalized_masks = torch.nn.functional.softmax(output, dim=1)
 
-    def resize(self, image, landmarks, img_size):
-        image = TF.resize(image, img_size)
-        return image, landmarks
+    dog_and_boat_masks = [
+        normalized_masks[img_idx, sem_class_to_idx[cls]]
+        for img_idx in range(len(dog_list))
+        for cls in ('dog', 'boat')
+    ]
 
-    def crop_face(self, image, landmarks, crops):
-        left = int(crops['left'])
-        top = int(crops['top'])
-        width = int(crops['width'])
-        height = int(crops['height'])
+    show(dog_and_boat_masks)
 
-        image = TF.crop(image, top, left, height, width)
-
-        img_shape = np.array(image).shape
-        landmarks = torch.tensor(landmarks) - torch.tensor([[left, top]])
-        landmarks = landmarks / torch.tensor([img_shape[1], img_shape[0]])
-        return image, landmarks
-
-    def __call__(self, image, landmarks, crops):
-        image = Image.fromarray(image)
-        image, landmarks = self.crop_face(image, landmarks, crops)
-        image, landmarks = self.resize(image, landmarks, (224, 224))
-        # image, landmarks = self.rotate(image, landmarks, angle=10)
-        
-        image = TF.to_tensor(image)
-        image = TF.normalize(image, [0.5], [0.5])
-        return image, landmarks# increíble print('hola mundo')
-
-
-class FaceLandmarksDataset(Dataset):
-
-    def __init__(self, transform=None):
-
-        tree = ET.parse(
-            'ibug_300W_large_face_landmark_dataset/labels_ibug_300W_train.xml')
-        root = tree.getroot()
-
-        self.image_filenames = []
-        self.landmarks = []
-        self.crops = []
-        self.transform = transform
-        self.root_dir = 'ibug_300W_large_face_landmark_dataset'
-
-        for filename in root[2]:
-            self.image_filenames.append(os.path.join(
-                self.root_dir, filename.attrib['file']))
-
-            self.crops.append(filename[0].attrib)
-
-            landmark = []
-            for num in range(68):
-                x_coordinate = int(filename[0][num].attrib['x'])
-                y_coordinate = int(filename[0][num].attrib['y'])
-                landmark.append([x_coordinate, y_coordinate])
-            self.landmarks.append(landmark)
-
-        self.landmarks = np.array(self.landmarks).astype('float32')
-
-        assert len(self.image_filenames) == len(self.landmarks)
-
-    def __len__(self):
-        return len(self.image_filenames)
-
-    def __getitem__(self, index):
-        image = cv2.imread(self.image_filenames[index], 0)
-        landmarks = self.landmarks[index]
-
-        if self.transform:
-            image, landmarks = self.transform(
-                image, landmarks, self.crops[index])
-
-        landmarks = landmarks - 0.5
-
-        return image, landmarks
-
-
-dataset = FaceLandmarksDataset(Transforms())
