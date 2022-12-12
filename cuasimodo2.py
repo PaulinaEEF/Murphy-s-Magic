@@ -1,0 +1,144 @@
+from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
+import torch
+import torch.nn  as nn
+import torchvision
+import torch.nn.functional as F
+from torch.optim import Adam
+from torch.autograd import Variable
+import numpy as np
+import matplotlib.pyplot as plt
+from torchvision import transforms
+from torchvision.datasets import CIFAR10
+from sklearn.metrics import precision_recall_fscore_support
+
+class Network(nn.Module):
+    def __init__(self):
+        super(Network, self).__init__()
+        
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=12, kernel_size=5, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(12)
+        self.conv2 = nn.Conv2d(in_channels=12, out_channels=12, kernel_size=5, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(12)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.conv4 = nn.Conv2d(in_channels=12, out_channels=24, kernel_size=5, stride=1, padding=1)
+        self.conv5 = nn.Conv2d(in_channels=24, out_channels=24, kernel_size=5, stride=1, padding=1)
+        self.bn5 = nn.BatchNorm2d(24)
+        self.fc1 = nn.Linear(24*(106)*(106), 51)
+        
+    def forward(self, input):
+        output = F.relu(self.bn1(self.conv1(input)))
+        output = F.relu(self.bn2(self.conv2(output)))
+        output = self.pool(output)
+        output = F.relu(self.conv4(output))
+        output = F.relu(self.bn5(self.conv5(output)))
+        output = output.view(-1, 24*(106)*106)
+        output = self.fc1(output)
+        return output
+    
+#inicia
+    
+transformaciones = transforms.Compose([
+                        transforms.RandomHorizontalFlip(),
+                        transforms.ToTensor(),
+                        transforms.Resize((224, 224)),
+                        transforms.ColorJitter(
+                            brightness=0.4, contrast=0.4, saturation=0.4, hue=0.4),
+                        transforms.RandomRotation(
+                            5, expand=False, center=None),
+                        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    ])
+train_set = ImageFolder('./new_dataset/training', transform=transformaciones)
+train_loader = DataLoader(train_set, batch_size=38, shuffle=True)
+
+# print(train_loader.shape)
+
+test_set = ImageFolder('./new_dataset/val', transform=transformaciones)
+test_loader = DataLoader(test_set, batch_size=38, shuffle=True)
+
+classes = ['adamsandler', 'adrianalima', 'anadearmas', 'angelinajolie', 'annehathaway', 'barackobama', 'benedictcumberbatch', 'bradpitt', 'brunomars', 'caradelevingne', 'charlesleclerc', 'chayanne', 'chrisevans', 'chrishemsworth', 'chrispine', 'chrispratt', 'chrisrock', 'christianbale', 'cristianoronaldo', 'danielricciardo', 'dannydevito', 'denzelwashington', 'dwaynejohnson', 'gigihadid', 'harrystyles', 'hughjackman', 'jackiechan', 'jamesfranco', 'jenniferconnelly', 'jenniferlawrence', 'johnnydepp', 'juliaroberts', 'katebeckinsale', 'katewinslet', 'kevinhart', 'leonardodicaprio', 'lewishamilton', 'margotrobbie', 'natalieportman', 'nicolekidman', 'queenelizabeth', 'robertdowneyjr', 'salmahayek', 'sandrabullock', 'selenagomez', 'sergioperez', 'stevecarrel', 'tobeymaguire', 'tomcruise', 'tomhanks', 'vindiesel']
+model = Network()
+loss_fn = nn.CrossEntropyLoss()
+optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+
+
+
+def saveModel():
+    path = './model.pth'
+    torch.save(model.state_dict(), path)
+
+def test_accuracy():
+    model.eval()
+    accuracy = 0.0
+    total = 0.0
+    
+    with torch.no_grad():
+        for data in test_loader:
+            images,labels = data
+            images = images.to(torch.device("cpu"))
+            labels = labels.to(torch.device("cpu"))
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            accuracy += (predicted == labels).sum().item()
+    
+    accuracy = (100 * accuracy) / total
+    return accuracy
+
+def train(num_epochs):
+    best_accuracy = 0.0
+    
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model.to(torch.device("cpu"))
+    
+    for epoch in range(num_epochs):
+        running_loss = 0.0
+        running_acc = 0.0
+        for i, (images,labels) in enumerate(train_loader, 0):
+            images = images.to(torch.device("cpu"))
+            labels = labels.to(torch.device("cpu"))
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = loss_fn(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            running_loss+=loss.item()
+            if i %1000==999:
+                print('[%d, %5d] loss: %.3f' % (epoch+1, i+1, running_loss/1000))
+                running_loss = 0.0
+            
+        accuracy = test_accuracy()
+        print("For epoch ", epoch+1, " accuracy is: ",(accuracy))
+        
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            saveModel()
+        
+    
+def imageshow(img):
+    img = img/2+0.5
+    npimg = img.numpy()
+    plt.imshow(np.transpose(npimg, (1,2,0)))
+    plt.show()
+    
+def testBatch():
+    images, labels = next(iter(test_loader))
+    imageshow(torchvision.utils.make_grid(images))
+    print("Real labels: " , ' '.join('%5s' % classes[labels[j]] for j in range(38)))
+    
+    outputs = model(images)
+    _, predicted = torch.max(outputs, 1)
+    print("Predicted labels: " , ' '.join('%5s' % classes[predicted[j]] for j in range(38)))
+
+
+if __name__ == '__main__':
+    # print(len(classes))
+    train(50)
+    print("Finished training")
+    
+    # testModelAccuracy = test_accuracy()
+    model = Network()
+    path = './model11.pth'
+    model.load_state_dict(torch.load(path))
+    testBatch()
