@@ -10,7 +10,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
-from sklearn.metrics import precision_recall_fscore_support
 
 class Network(nn.Module):
     def __init__(self):
@@ -20,19 +19,23 @@ class Network(nn.Module):
         self.bn1 = nn.BatchNorm2d(12)
         self.conv2 = nn.Conv2d(in_channels=12, out_channels=12, kernel_size=5, stride=1, padding=1)
         self.bn2 = nn.BatchNorm2d(12)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.pool = nn.MaxPool2d(kernel_size=2)
         self.conv4 = nn.Conv2d(in_channels=12, out_channels=24, kernel_size=5, stride=1, padding=1)
+        self.bn4 = nn.BatchNorm2d(24)
         self.conv5 = nn.Conv2d(in_channels=24, out_channels=24, kernel_size=5, stride=1, padding=1)
         self.bn5 = nn.BatchNorm2d(24)
-        self.fc1 = nn.Linear(24*(106)*(106), 51)
+        self.fc1 = nn.Linear(24*(12)*(12), 51)
         
     def forward(self, input):
-        output = F.relu(self.bn1(self.conv1(input)))
-        output = F.relu(self.bn2(self.conv2(output)))
+        output = torch.sigmoid(self.bn1(self.conv1(input)))
         output = self.pool(output)
-        output = F.relu(self.conv4(output))
-        output = F.relu(self.bn5(self.conv5(output)))
-        output = output.view(-1, 24*(106)*106)
+        output = torch.sigmoid(self.bn2(self.conv2(output)))
+        output = self.pool(output)
+        output = torch.sigmoid(self.bn4(self.conv4(output)))
+        output = self.pool(output)
+        output = torch.sigmoid(self.bn5(self.conv5(output)))
+        output = self.pool(output)
+        output = output.view(-1, 24*(12)*12)
         output = self.fc1(output)
         return output
     
@@ -51,20 +54,13 @@ transformaciones = transforms.Compose([
 train_set = ImageFolder('./new_dataset/training', transform=transformaciones)
 train_loader = DataLoader(train_set, batch_size=38, shuffle=True)
 
-# print(train_loader.shape)
-
-test_set = ImageFolder('./new_dataset/val', transform=transformaciones)
+test_set = ImageFolder('./new_dataset/validation', transform=transformaciones)
 test_loader = DataLoader(test_set, batch_size=38, shuffle=True)
 
 classes = ['adamsandler', 'adrianalima', 'anadearmas', 'angelinajolie', 'annehathaway', 'barackobama', 'benedictcumberbatch', 'bradpitt', 'brunomars', 'caradelevingne', 'charlesleclerc', 'chayanne', 'chrisevans', 'chrishemsworth', 'chrispine', 'chrispratt', 'chrisrock', 'christianbale', 'cristianoronaldo', 'danielricciardo', 'dannydevito', 'denzelwashington', 'dwaynejohnson', 'gigihadid', 'harrystyles', 'hughjackman', 'jackiechan', 'jamesfranco', 'jenniferconnelly', 'jenniferlawrence', 'johnnydepp', 'juliaroberts', 'katebeckinsale', 'katewinslet', 'kevinhart', 'leonardodicaprio', 'lewishamilton', 'margotrobbie', 'natalieportman', 'nicolekidman', 'queenelizabeth', 'robertdowneyjr', 'salmahayek', 'sandrabullock', 'selenagomez', 'sergioperez', 'stevecarrel', 'tobeymaguire', 'tomcruise', 'tomhanks', 'vindiesel']
-model = Network()
-loss_fn = nn.CrossEntropyLoss()
-optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
-
-
 
 def saveModel():
-    path = './model.pth'
+    path = './best_model.pth'
     torch.save(model.state_dict(), path)
 
 def test_accuracy():
@@ -85,7 +81,7 @@ def test_accuracy():
     accuracy = (100 * accuracy) / total
     return accuracy
 
-def train(num_epochs):
+def train(num_epochs, optimizer, loss_fn):
     best_accuracy = 0.0
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -95,6 +91,7 @@ def train(num_epochs):
         running_loss = 0.0
         running_acc = 0.0
         for i, (images,labels) in enumerate(train_loader, 0):
+            model.train(True)
             images = images.to(torch.device("cpu"))
             labels = labels.to(torch.device("cpu"))
             optimizer.zero_grad()
@@ -134,11 +131,11 @@ def testBatch():
 
 if __name__ == '__main__':
     # print(len(classes))
-    train(50)
+    global model
+    model = Network()
+    loss_fn = nn.CrossEntropyLoss()
+    optimizer = Adam(model.parameters(), lr=0.001, weight_decay=0.0001)
+    
+    train(50, optimizer, loss_fn)
     print("Finished training")
     
-    # testModelAccuracy = test_accuracy()
-    model = Network()
-    path = './model11.pth'
-    model.load_state_dict(torch.load(path))
-    testBatch()
